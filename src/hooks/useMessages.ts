@@ -5,6 +5,44 @@ import { Message } from "../types";
 
 const MESSAGES_PAGE_SIZE = 50;
 
+const formatPostgrestInList = (values: string[]) =>
+  `(${values.map((value) => `"${value}"`).join(",")})`;
+
+const getDeletedMessagesStorageKey = (userId: string, chatId: string) =>
+  `deleted-messages:${userId}:${chatId}`;
+
+const readDeletedMessagesFromStorage = (userId: string, chatId: string) => {
+  try {
+    const raw = window.localStorage.getItem(
+      getDeletedMessagesStorageKey(userId, chatId),
+    );
+
+    if (!raw) return [] as string[];
+
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string")
+      : [];
+  } catch {
+    return [] as string[];
+  }
+};
+
+const persistDeletedMessagesToStorage = (
+  userId: string,
+  chatId: string,
+  messageIds: string[],
+) => {
+  try {
+    window.localStorage.setItem(
+      getDeletedMessagesStorageKey(userId, chatId),
+      JSON.stringify(messageIds),
+    );
+  } catch {
+    // ignore storage errors and keep in-memory state working
+  }
+};
+
 export function useMessages(chatId: string | null) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -23,6 +61,31 @@ export function useMessages(chatId: string | null) {
         setLoadingMore(true);
       }
 
+      const localDeletedMessageIds = readDeletedMessagesFromStorage(
+        user.id,
+        chatId,
+      );
+
+      const { data: deletedRows, error: deletedRowsError } = await supabase
+        .from("deleted_messages")
+        .select("message_id")
+        .eq("chat_id", chatId)
+        .eq("user_id", user.id);
+
+      if (deletedRowsError) {
+        console.warn(
+          "Fetch deleted_messages error, using local fallback:",
+          deletedRowsError,
+        );
+      }
+
+      const deletedMessageIds = Array.from(
+        new Set([
+          ...localDeletedMessageIds,
+          ...(deletedRows || []).map((r: any) => r.message_id),
+        ]),
+      );
+
       let query = supabase
         .from("messages")
         .select("*")
@@ -30,6 +93,10 @@ export function useMessages(chatId: string | null) {
         .eq("is_deleted", false)
         .order("created_at", { ascending: true })
         .limit(MESSAGES_PAGE_SIZE);
+
+      if (deletedMessageIds.length > 0) {
+        query = query.not("id", "in", formatPostgrestInList(deletedMessageIds));
+      }
 
       if (!reset && messages.length > 0) {
         query = query.lt(
@@ -62,33 +129,37 @@ export function useMessages(chatId: string | null) {
 
         // Загрузить reply_messages
         const replyToIds = Array.from(
-          new Set((data || []).filter((m: any) => m.reply_to).map((m: any) => m.reply_to)),
+          new Set(
+            (data || [])
+              .filter((m: any) => m.reply_to)
+              .map((m: any) => m.reply_to),
+          ),
         );
         const replyMessages: Record<string, any> = {};
-        
+
         if (replyToIds.length > 0) {
           const { data: replyData } = await supabase
             .from("messages")
             .select("id, content, sender_id")
             .in("id", replyToIds);
-          
+
           // Также загрузить профили авторов reply
           const replySenderIds = Array.from(
             new Set((replyData || []).map((r: any) => r.sender_id)),
           );
           const replyProfiles: Record<string, any> = {};
-          
+
           if (replySenderIds.length > 0) {
             const { data: replyProfilesData } = await supabase
               .from("profiles")
               .select("id, email, display_name")
               .in("id", replySenderIds);
-            
+
             replyProfilesData?.forEach((p: any) => {
               replyProfiles[p.id] = p;
             });
           }
-          
+
           replyData?.forEach((r: any) => {
             replyMessages[r.id] = {
               ...r,
@@ -142,12 +213,37 @@ export function useMessages(chatId: string | null) {
         },
         async (payload: any) => {
           if (payload.new.sender_id !== user.id) {
+            const localDeletedIds = readDeletedMessagesFromStorage(
+              user.id,
+              chatId,
+            );
+
+            if (localDeletedIds.includes(payload.new.id)) {
+              return;
+            }
+
+            const { data: deletedRow, error: deletedRowError } = await supabase
+              .from("deleted_messages")
+              .select("id")
+              .eq("message_id", payload.new.id)
+              .eq("user_id", user.id)
+              .maybeSingle();
+
+            if (deletedRowError) {
+              console.warn(
+                "Realtime deleted_messages check error, using local fallback:",
+                deletedRowError,
+              );
+            }
+
+            if (deletedRow) return;
+
             const newMessage: any = {
               ...payload.new,
               reactions: [],
               sender: { id: payload.new.sender_id },
             };
-            
+
             // Загрузить reply_message если есть
             if (payload.new.reply_to) {
               const { data: replyMsg } = await supabase
@@ -155,21 +251,21 @@ export function useMessages(chatId: string | null) {
                 .select("id, content, sender_id")
                 .eq("id", payload.new.reply_to)
                 .single();
-              
+
               if (replyMsg) {
                 const { data: replyProfile } = await supabase
                   .from("profiles")
                   .select("id, email, display_name")
                   .eq("id", replyMsg.sender_id)
                   .single();
-                
+
                 newMessage.reply_message = {
                   ...replyMsg,
                   sender: replyProfile || { id: replyMsg.sender_id },
                 };
               }
             }
-            
+
             setMessages((prev) => [...prev, newMessage]);
           }
         },
@@ -213,24 +309,29 @@ export function useMessages(chatId: string | null) {
           .select("id, content, sender_id")
           .eq("id", data.reply_to)
           .single();
-        
+
         if (replyData) {
           const { data: replyProfile } = await supabase
             .from("profiles")
             .select("id, email, display_name")
             .eq("id", replyData.sender_id)
             .single();
-          
+
           replyMessage = {
             ...replyData,
             sender: replyProfile || { id: replyData.sender_id },
           };
         }
       }
-      
+
       setMessages((prev) => [
         ...prev,
-        { ...data, reactions: [], sender: { id: user.id }, reply_message: replyMessage },
+        {
+          ...data,
+          reactions: [],
+          sender: { id: user.id },
+          reply_message: replyMessage,
+        },
       ]);
     }
 
@@ -260,16 +361,49 @@ export function useMessages(chatId: string | null) {
     return { error };
   };
 
-  const deleteMessage = async (messageId: string) => {
+  const deleteMessageForAll = async (messageId: string) => {
+    const deletedAt = new Date().toISOString();
+
     const { error } = await supabase
       .from("messages")
       .update({
         is_deleted: true,
         content: "",
-        updated_at: new Date().toISOString(),
+        updated_at: deletedAt,
       })
       .eq("id", messageId)
       .eq("sender_id", user?.id);
+
+    if (!error) {
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    }
+
+    return { error };
+  };
+
+  const deleteMessageForMe = async (messageId: string) => {
+    if (!user || !chatId) return { error: new Error("Not authenticated") };
+
+    const nextDeletedMessageIds = Array.from(
+      new Set([...readDeletedMessagesFromStorage(user.id, chatId), messageId]),
+    );
+
+    persistDeletedMessagesToStorage(user.id, chatId, nextDeletedMessageIds);
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+
+    const { error } = await supabase.from("deleted_messages").insert({
+      message_id: messageId,
+      user_id: user.id,
+      chat_id: chatId,
+      created_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.warn(
+        "Delete message for me fallback activated, Supabase insert failed:",
+        error,
+      );
+    }
 
     return { error };
   };
@@ -351,7 +485,8 @@ export function useMessages(chatId: string | null) {
     loadMore: () => fetchMessages(false),
     sendMessage,
     editMessage,
-    deleteMessage,
+    deleteMessageForAll,
+    deleteMessageForMe,
     addReaction,
     removeReaction,
     searchMessages,

@@ -28,7 +28,8 @@ export function MessengerPage({ onOpenSettings }: MessengerPageProps) {
     loadMore,
     sendMessage,
     editMessage,
-    deleteMessage,
+    deleteMessageForAll,
+    deleteMessageForMe,
     addReaction,
   } = useMessages(selectedChatId);
 
@@ -45,7 +46,7 @@ export function MessengerPage({ onOpenSettings }: MessengerPageProps) {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchTab, setSearchTab] = useState<SearchTab>("chats");
   const [searchedMessages, setSearchedMessages] = useState<any[]>([]);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Поиск сообщений (отдельная функция)
   const handleSearchMessages = useCallback(
@@ -133,10 +134,11 @@ export function MessengerPage({ onOpenSettings }: MessengerPageProps) {
     setReplyingTo(null);
   };
 
-  const handleDelete = async (message: Message) => {
-    // eslint-disable-next-line no-restricted-globals
-    if (confirm("Удалить сообщение?")) {
-      await deleteMessage(message.id);
+  const handleDelete = async (message: Message, deleteForAll: boolean) => {
+    if (deleteForAll) {
+      await deleteMessageForAll(message.id);
+    } else {
+      await deleteMessageForMe(message.id);
     }
   };
 
@@ -277,7 +279,7 @@ export function MessengerPage({ onOpenSettings }: MessengerPageProps) {
                           </div>
                         </div>
                       ))}
-                    
+
                     {/* Пользователи (для создания нового чата) */}
                     {searchResults
                       .filter((u) => u.id !== user?.id)
@@ -300,7 +302,7 @@ export function MessengerPage({ onOpenSettings }: MessengerPageProps) {
                           </div>
                         </div>
                       ))}
-                    
+
                     {chats.filter(
                       (c) =>
                         c.name
@@ -308,12 +310,14 @@ export function MessengerPage({ onOpenSettings }: MessengerPageProps) {
                           .includes(searchQuery.toLowerCase()) ||
                         c.other_member?.display_name
                           ?.toLowerCase()
-                          .includes(searchQuery.toLowerCase())
-                    ).length === 0 && searchResults.filter((u) => u.id !== user?.id).length === 0 && (
-                      <div className="search-result-item empty">
-                        <i className="fas fa-search"></i> Чаты не найдены
-                      </div>
-                    )}
+                          .includes(searchQuery.toLowerCase()),
+                    ).length === 0 &&
+                      searchResults.filter((u) => u.id !== user?.id).length ===
+                        0 && (
+                        <div className="search-result-item empty">
+                          <i className="fas fa-search"></i> Чаты не найдены
+                        </div>
+                      )}
                   </div>
                 )}
 
@@ -373,7 +377,8 @@ export function MessengerPage({ onOpenSettings }: MessengerPageProps) {
                     ))}
                     {channelResults.length === 0 && (
                       <div className="search-result-item empty">
-                        <i className="fas fa-broadcast-tower"></i> Каналы не найдены
+                        <i className="fas fa-broadcast-tower"></i> Каналы не
+                        найдены
                       </div>
                     )}
                   </div>
@@ -405,7 +410,9 @@ export function MessengerPage({ onOpenSettings }: MessengerPageProps) {
       <div className="chat-area">
         {selectedChatId ? (
           <>
-            <ChatHeader chat={chats.find(c => c.id === selectedChatId) || null} />
+            <ChatHeader
+              chat={chats.find((c) => c.id === selectedChatId) || null}
+            />
             <MessageList
               messages={messages}
               loading={messagesLoading}
@@ -416,13 +423,17 @@ export function MessengerPage({ onOpenSettings }: MessengerPageProps) {
               onEdit={handleEdit}
               onDelete={handleDelete}
               onAddReaction={handleReaction}
+              editingMessage={editingMessage}
+              onCancelEdit={() => setEditingMessage(null)}
             />
 
             <MessageInput
               onSend={handleSend}
+              onEdit={editMessage}
               replyingTo={replyingTo}
               onCancelReply={() => setReplyingTo(null)}
-              disabled={!!editingMessage}
+              editingMessage={editingMessage}
+              onCancelEdit={() => setEditingMessage(null)}
             />
           </>
         ) : (

@@ -236,7 +236,6 @@ body {
   padding: 1rem;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
 }
 
 .message {
@@ -249,6 +248,25 @@ body {
   border-radius: 12px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
   animation: messageSlideIn 0.3s ease-out;
+}
+
+.highlighted-message {
+  background: #fff3cd !important;
+  transition: background 0.5s;
+}
+
+.highlighted-message::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #fff3cd;
+  z-index: -1;
+  border-radius: 12px;
+  width: 100vw;
+  margin-left: -100vw;
 }
 
 @keyframes messageSlideIn {
@@ -494,6 +512,66 @@ body {
   font-style: italic;
 }
 
+.date-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 16px 0;
+  position: relative;
+}
+
+.date-divider::before,
+.date-divider::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.date-divider span {
+  padding: 0 12px;
+  color: #999;
+  font-size: 13px;
+  font-weight: 500;
+  background: #f9f9f9;
+  border-radius: 12px;
+  padding: 4px 12px;
+}
+
+.edit-indicator {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff3cd;
+  padding: 8px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  border-left: 3px solid #f39c12;
+}
+
+.edit-indicator span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #856404;
+}
+
+.edit-indicator button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #856404;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-indicator button:hover {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+
 .message-reply {
   background: rgba(0, 0, 0, 0.05);
   border-left: 3px solid #667eea;
@@ -501,6 +579,17 @@ body {
   border-radius: 0 6px 6px 0;
   margin-bottom: 4px;
   font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.message-reply:hover {
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.highlighted-message {
+  background: #fff3cd !important;
+  transition: background 0.5s;
 }
 
 .message-reply .reply-author {
@@ -595,6 +684,25 @@ body {
   padding: 8px;
   border-radius: 6px;
   margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.reply-indicator span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reply-media-preview,
+.reply-content-preview {
+  color: #666;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reply-media-preview i {
   font-size: 14px;
 }
 
@@ -1260,6 +1368,10 @@ body {
 
 .checkbox-label input {
   width: auto;
+}
+
+.checkbox-label.disabled {
+  opacity: 0.6;
 }
 
 .modal-actions {
